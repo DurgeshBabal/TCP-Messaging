@@ -110,11 +110,10 @@ func readServerResponse(r *bufio.Reader) (m models.Message, err error) {
 
 	netData = strings.TrimSuffix(netData, "~")
 
-	fmt.Print("\nServer Response:\n" + netData)
-	fmt.Print("\n>> ")
-
 	err = json.Unmarshal([]byte(netData), &m)
 
+	printResponse(m)
+	
 	return m, err
 }
 
@@ -123,6 +122,13 @@ func writeMessage(m models.Message, c net.Conn) {
 	b = append(b, '~')
 
 	fmt.Fprintf(c, "%s", b)
+}
+
+func printResponse(m models.Message) {
+	fmt.Print("\nServer Response:")
+	fmt.Print("\n", m.Operation)
+	fmt.Print("\n", m.Value)
+	fmt.Print("\n>> ")
 }
 
 func (client *client) handleOperation(m models.Message, c net.Conn) {
