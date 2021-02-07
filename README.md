@@ -10,6 +10,8 @@ Implements a basic tcp messaging system with one server and multiple clients
  - All commands are delimited by '~'
  - Development branch was not used since it was not required here
  - golangci-lint has been used and run though no .yml file has been attached
+ - Run a server with `go run server/server.go`
+ - Run a client with `go run client/client.go`
 
 ### Sample Operations
   - {"operation":"ClientList"}~
