@@ -26,9 +26,8 @@ func NewServer(ip string, port string) *server {
 }
 
 func getClientList(clients map[string]net.Conn) (resp string) {
-	for k, v := range clients {
-		addr := v.LocalAddr().String()
-		resp += k + " -> " + addr + "\n"
+	for k, _ := range clients {
+		resp += k + "\n"
 	}
 
 	return resp
@@ -74,10 +73,6 @@ func (s *server) handleOperation(c net.Conn, m models.Message) []byte {
 	case "ForwardMessage", "ClientResponse":
 		resp = forwardMessage(s.clients, m, c)
 		return []byte(resp)
-
-		// case "ClientResponse":
-		// 	resp = forwardMessage(s.Clients, m, c)
-		// 	return []byte(resp)
 	}
 
 	msg := models.Message{
@@ -112,7 +107,19 @@ func readMessage(c net.Conn) (m models.Message, err error) {
 
 func (s *server) handleConnection(c net.Conn) {
 	defer c.Close()
+	defer func() {
+		key := ""
 
+		for k, v := range s.clients {
+			if v == c {
+				key = k
+				break
+			} 
+		}
+
+		delete(s.clients, key)
+	}()
+	
 	for {
 		message, err := readMessage(c)
 		if err != nil {
