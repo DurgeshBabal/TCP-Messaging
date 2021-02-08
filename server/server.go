@@ -57,7 +57,7 @@ func forwardMessage(clients map[string]net.Conn, m models.Message, c net.Conn) (
 		log.Println(err)
 	}
 
-	return "Forwarded~"
+	return `{"value":"Forwarded"}~`
 }
 
 func (s *server) handleOperation(c net.Conn, m models.Message) []byte {
