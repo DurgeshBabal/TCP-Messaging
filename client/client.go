@@ -9,8 +9,10 @@ import (
 	"net"
 	"os"
 	"strings"
-	"test/keygen"
-	"test/models"
+
+	"github.com/DurgeshBabal/TCP-Messaging/keygen"
+	"github.com/DurgeshBabal/TCP-Messaging/models"
+	"github.com/fatih/color"
 )
 
 type client struct {
@@ -35,7 +37,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Println(pubKey)
+	log.Println("\n", pubKey)
 
 	// Connect to server
 	client := NewClient(pvtKey, pubKey)
@@ -50,7 +52,7 @@ func main() {
 	// Register client with server
 	m := models.Message{
 		Operation: "RegisterClient",
-		Value:     client.pubKey,
+		Source:    client.pubKey,
 	}
 
 	writeMessage(m, c)
@@ -70,6 +72,8 @@ func main() {
 				log.Println(err)
 				continue
 			}
+
+			printResponse(m)
 
 			client.handleOperation(m, c)
 		}
@@ -112,8 +116,6 @@ func readServerResponse(r *bufio.Reader) (m models.Message, err error) {
 
 	err = json.Unmarshal([]byte(netData), &m)
 
-	printResponse(m)
-	
 	return m, err
 }
 
@@ -125,9 +127,23 @@ func writeMessage(m models.Message, c net.Conn) {
 }
 
 func printResponse(m models.Message) {
-	fmt.Print("\nServer Response:")
-	fmt.Print("\n", m.Operation)
-	fmt.Print("\n", m.Value)
+	if (m == models.Message{}) {
+		return
+	}
+
+	color.Blue("\nServer Response:")
+	if m.Operation != "" {
+		color.Cyan("Operation:")
+		color.Red(m.Operation)
+	}
+	if m.Value != "" {
+		color.Cyan("Value:")
+		color.Red(m.Value)
+	}
+	if m.Source != "" {
+		color.Cyan("Source Client PubKey:")
+		color.Red(m.Source)
+	}
 	fmt.Print("\n>> ")
 }
 
@@ -136,8 +152,9 @@ func (client *client) handleOperation(m models.Message, c net.Conn) {
 	case "ForwardMessage":
 		msg := models.Message{
 			Operation: "ClientResponse",
-			Value:     client.pubKey,
-			Target:    m.Value,
+			Source:    client.pubKey,
+			Value:     "Sending a random payload",
+			Target:    m.Source,
 		}
 
 		writeMessage(msg, c)
