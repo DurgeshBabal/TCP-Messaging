@@ -7,92 +7,144 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
-	"test/models"
+
+	"github.com/DurgeshBabal/TCP-Messaging/models"
 )
 
 type server struct {
-	ip      string
-	port    string
-	clients map[string]net.Conn
+	ip          string
+	port        string
+	connections map[string]net.Conn
+	clients     map[int]string
+	ctr         int
 }
 
 func NewServer(ip string, port string) *server {
 	return &server{
-		ip:      ip,
-		port:    port,
-		clients: make(map[string]net.Conn),
+		ip:          ip,
+		port:        port,
+		connections: make(map[string]net.Conn),
+		clients:     make(map[int]string),
+		ctr:         1,
 	}
 }
 
-func getClientList(clients map[string]net.Conn) (resp string) {
-	for k, _ := range clients {
-		resp += k + "\n"
+func (s *server) getClientList() (resp string) {
+	for k, v := range s.clients {
+		resp += "Client ID: " + strconv.Itoa(k) + "\n" + v + "\n"
 	}
 
 	return resp
 }
 
-func registerClient(clients map[string]net.Conn, pubKey string, c net.Conn) (resp string) {
-	clients[pubKey] = c
+func (s *server) registerClient(m models.Message, c net.Conn) (resp string) {
+	pubKey := m.Source
+
+	s.connections[pubKey] = c
+	s.clients[s.ctr] = pubKey
+	s.ctr++
 
 	resp = "Client registered!"
 
 	return resp
 }
 
-func forwardMessage(clients map[string]net.Conn, m models.Message, c net.Conn) (resp string) {
-	targetConn := clients[m.Target]
+// Assuming the source and target fiels in message will use the clientID
+// displayed when using the 'ClientList' operation to make forwarding
+// messages easier. forwardMessage() is same as clientResponse() except
+// that the former is used by users while the latter is used by the client
+// to send automatic responses
+func (s *server) forwardMessage(m models.Message, c net.Conn) (resp string) {
+	var sourcePubKey string
+
+	for k, v := range s.connections {
+		if v == c {
+			sourcePubKey = k
+			break
+		}
+	}
+
+	clientID, err := strconv.Atoi(m.Target)
+	if err != nil {
+		log.Println(err)
+		return "Target Invalid"
+	}
+
+	targetPubKey := s.clients[clientID]
+	targetConn := s.connections[targetPubKey]
+	if targetConn == nil {
+		return "Targed Invalid"
+	}
 
 	msg := models.Message{
 		Operation: m.Operation,
 		Value:     m.Value,
+		Source:    sourcePubKey,
 	}
 
-	data := msg.Bytes()
-	data = append(data, '~')
+	writeMessage(msg, targetConn)
 
-	_, err := targetConn.Write(data)
-	if err != nil {
-		log.Println(err)
-	}
-
-	return `{"value":"Forwarded"}~`
+	return "Message Forwarded!"
 }
 
-func (s *server) handleOperation(c net.Conn, m models.Message) []byte {
-	var resp string
-
-	switch m.Operation {
-	case "ClientList":
-		resp = getClientList(s.clients)
-
-	case "RegisterClient":
-		resp = registerClient(s.clients, m.Value, c)
-
-	case "ForwardMessage", "ClientResponse":
-		resp = forwardMessage(s.clients, m, c)
-		return []byte(resp)
+func (s *server) clientResponse(m models.Message, c net.Conn) (resp string) {
+	targetConn := s.connections[m.Target]
+	if targetConn == nil {
+		return "Targed Invalid"
 	}
 
 	msg := models.Message{
 		Operation: m.Operation,
+		Value:     m.Value,
+		Source:    m.Source,
+	}
+
+	writeMessage(msg, targetConn)
+
+	return "Response Sent!"
+}
+
+func (s *server) handleOperation(c net.Conn, m models.Message) {
+	var resp string
+	op := m.Operation
+
+	switch m.Operation {
+	case "ClientList":
+		resp = s.getClientList()
+
+	case "RegisterClient":
+		resp = s.registerClient(m, c)
+
+	case "ForwardMessage":
+		resp = s.forwardMessage(m, c)
+		op = ""
+
+	case "ClientResponse":
+		resp = s.clientResponse(m, c)
+		op = ""
+
+	default:
+		op = "Invalid Operation"
+	}
+
+	msg := models.Message{
+		Operation: op,
 		Value:     resp,
 	}
 
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Println(err)
-	}
-
-	data = append(data, '~')
-
-	return data
+	writeMessage(msg, c)
 }
 
-func readMessage(c net.Conn) (m models.Message, err error) {
-	r := bufio.NewReader(c)
+func writeMessage(m models.Message, c net.Conn) {
+	b := m.Bytes()
+	b = append(b, '~')
 
+	fmt.Fprintf(c, "%s", b)
+}
+
+func readMessage(r *bufio.Reader) (m models.Message, err error) {
 	netData, err := r.ReadString('~')
 	if err != nil {
 		return m, err
@@ -105,23 +157,34 @@ func readMessage(c net.Conn) (m models.Message, err error) {
 	return m, err
 }
 
-func (s *server) handleConnection(c net.Conn) {
-	defer c.Close()
-	defer func() {
-		key := ""
+func (s *server) cleanUp(c net.Conn) {
+	var pubKey string
 
-		for k, v := range s.clients {
-			if v == c {
-				key = k
-				break
-			} 
+	for k, v := range s.connections {
+		if v == c {
+			pubKey = k
+			delete(s.connections, k)
+			break
 		}
+	}
 
-		delete(s.clients, key)
-	}()
-	
+	for k, v := range s.clients {
+		if v == pubKey {
+			delete(s.clients, k)
+			break
+		}
+	}
+
+	c.Close()
+}
+
+func (s *server) handleConnection(c net.Conn) {
+	defer s.cleanUp(c)
+
+	r := bufio.NewReader(c)
+
 	for {
-		message, err := readMessage(c)
+		message, err := readMessage(r)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -130,12 +193,7 @@ func (s *server) handleConnection(c net.Conn) {
 			continue
 		}
 
-		resp := s.handleOperation(c, message)
-
-		_, err = c.Write(resp)
-		if err != nil {
-			log.Println(err)
-		}
+		s.handleOperation(c, message)
 	}
 }
 
