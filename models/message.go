@@ -8,6 +8,7 @@ import (
 type Message struct {
 	Operation string `json:"operation"`
 	Value     string `json:"value"`
+	Source    string `json:"source"`
 	Target    string `json:"target"`
 }
 
